@@ -6,9 +6,14 @@ from llama_index.embeddings.huggingface_api import HuggingFaceInferenceAPIEmbedd
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.vector_stores.chroma import ChromaVectorStore
+from dotenv import load_dotenv
 import chromadb
 
-HF_API_KEY = "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"  
+load_dotenv()
+
+HF_API_KEY = os.getenv('API_KEY')
+if not HF_API_KEY:
+    raise ValueError("API_KEY не найден в .env файле!")
 
 llm = HuggingFaceInferenceAPI(
     model_name="Qwen/Qwen2.5-72B-Instruct", 
@@ -87,7 +92,7 @@ if __name__ == "__main__":
     index = create_search_engine(docs)
     
     while True:
-        user_query = input("\n Ваш вопрос про саморазвитие (или 'выход'): ")
+        user_query = input("\n Ваш вопрос (или 'выход'): ")
         if user_query.lower() == 'выход':
             break
         
