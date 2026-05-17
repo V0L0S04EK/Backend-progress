@@ -35,12 +35,7 @@ class QueryResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global search_index
-    print("Загрузка данных с сайта...")
-    docs = load_pages()
-    print("Создание поискового индекса...")
-    search_index = create_search_engine(docs)
-    print("Сервер готов к работе!")
+    print("Сервер запускается... Индекс будет загружен при первом запросе")
     yield
     print("Сервер останавливается...")
 
@@ -132,22 +127,34 @@ def search_on_site(query: str, index):
 async def root():
     return {"message": "RAG API", "status": "running"}
 
+def get_or_create_index():
+    global search_index
+    if search_index is None:
+        print("Индекс не найден, загружаем...")
+        docs = load_pages()
+        search_index = create_search_engine(docs)
+        print("Индекс успешно загружен!")
+    return search_index
+
 @app.get("/health")
 async def health():
-    if search_index is None:
-        raise HTTPException(status_code=503, detail="Индекс еще не загружен")
-    return {"status": "healthy", "index_loaded": True}
+    try:
+        index = get_or_create_index()
+        return {"status": "healthy", "index_loaded": index is not None}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 @app.post("/ask", response_model=QueryResponse)
 async def ask_question(request: QueryRequest):
-    if search_index is None:
-        raise HTTPException(status_code=503, detail="Сервер загружается, попробуйте через минуту")
-    
     try:
-        answer, sources = search_on_site(request.question, search_index)
+        index = get_or_create_index()
+        if index is None:
+            raise HTTPException(status_code=503, detail="Индекс не может загрузиться")
+        
+        answer, sources = search_on_site(request.question, index)
         return QueryResponse(answer=answer, sources=sources)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при обработке запроса: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка: {str(e)}")
 
 # if __name__ == "__main__":
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
