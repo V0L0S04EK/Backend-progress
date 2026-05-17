@@ -7,3 +7,4 @@ llama-index-embeddings-huggingface-api
 chromadb
 sentence-transformers
 pydantic
+llama-index-vector-stores-chroma
