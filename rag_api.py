@@ -49,7 +49,7 @@ origins = ["https://xn--c1aezdfcia.fun",
             "https://xn--c1aezdfcia.fun/data/ai-construction-part2.html"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -148,5 +148,5 @@ async def ask_question(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при обработке запроса: {str(e)}")
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# if __name__ == "__main__":
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
