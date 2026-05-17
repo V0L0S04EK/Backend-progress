@@ -14,9 +14,8 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from dotenv import load_dotenv
-import nest_asyncio
-nest_asyncio.apply()
 load_dotenv()
 
 HF_API_KEY = os.getenv('API_KEY')
@@ -67,10 +66,10 @@ def create_search_engine(documents):
     chroma_collection = db.get_or_create_collection("knowledge_base")
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     
-    embed_model = HuggingFaceInferenceAPIEmbedding(
-        model_name="BAAI/bge-small-en-v1.5",  
-        token=HF_API_KEY
-    )
+    embed_model = HuggingFaceEmbedding(
+    model_name="BAAI/bge-small-en-v1.5",
+    device="cpu" 
+)
     
     pipeline = IngestionPipeline(
         transformations=[
