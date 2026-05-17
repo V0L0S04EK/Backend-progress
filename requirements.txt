@@ -7,4 +7,3 @@ llama-index-embeddings-huggingface-api
 chromadb
 sentence-transformers
 pydantic
-python-dotenvs
