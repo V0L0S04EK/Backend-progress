@@ -16,6 +16,8 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from dotenv import load_dotenv
+import nest_asyncio
+nest_asyncio.apply()
 load_dotenv()
 
 HF_API_KEY = os.getenv('API_KEY')
