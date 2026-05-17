@@ -8,3 +8,4 @@ chromadb
 sentence-transformers
 pydantic
 llama-index-vector-stores-chroma
+nest-asyncio

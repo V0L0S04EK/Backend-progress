@@ -15,7 +15,8 @@ from llama_index.core.ingestion import IngestionPipeline
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 from dotenv import load_dotenv
-
+import nest_asyncio
+nest_asyncio.apply()
 load_dotenv()
 
 HF_API_KEY = os.getenv('API_KEY')
