@@ -7,10 +7,4 @@ llama-index-embeddings-huggingface-api
 chromadb
 sentence-transformers
 pydantic
-python-dotenv
-from dotenv import load_dotenv
-load_dotenv()
-
-HF_API_KEY = os.getenv('API_KEY')
-if not HF_API_KEY:
-    raise ValueError("API_KEY не найден в .env файле!")
+python-dotenvs
