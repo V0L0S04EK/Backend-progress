@@ -1,11 +1,14 @@
 {
-  "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS"
   },
   "deploy": {
     "startCommand": "uvicorn rag_api:app --host 0.0.0.0 --port $PORT",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "healthcheckPath": "/health"
+  },
+  "env": {
+    "API_KEY": {
+      "required": true
+    }
   }
 }
