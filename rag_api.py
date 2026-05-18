@@ -11,7 +11,7 @@ import concurrent.futures
 from llama_index.core import VectorStoreIndex
 from llama_index.readers.web import SimpleWebPageReader
 from llama_index.llms.huggingface_api import HuggingFaceInferenceAPI
-from llama_index.embeddings.huggingface_api import HuggingFaceInferenceAPIEmbedding
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -55,9 +55,9 @@ def create_search_engine(documents):
     chroma_collection = db.get_or_create_collection("knowledge_base")
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     
-    embed_model = HuggingFaceInferenceAPIEmbedding(
-        api_key=HF_API_KEY,
-        model_name="BAAI/bge-small-en-v1.5"
+    embed_model = HuggingFaceEmbedding(
+        model_name="BAAI/bge-small-en-v1.5",
+        device="cpu"
     )
     
     pipeline = IngestionPipeline(
