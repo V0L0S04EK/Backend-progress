@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 from contextlib import asynccontextmanager
+import concurrent.futures
 
 from llama_index.core import VectorStoreIndex
 from llama_index.readers.web import SimpleWebPageReader
@@ -37,6 +38,7 @@ class QueryResponse(BaseModel):
     sources: Optional[List[str]] = []
 
 def load_pages():
+    """Синхронная загрузка страниц"""
     urls_to_scrape = [
         "https://xn--c1aezdfcia.fun/data/ai-construction-part1.html",
         "https://xn--c1aezdfcia.fun/data/ai-construction-part2.html"
@@ -48,11 +50,11 @@ def load_pages():
     return documents
 
 def create_search_engine(documents):
+    """Синхронное создание индекса"""
     db = chromadb.PersistentClient(path="./progress_fun_db")
     chroma_collection = db.get_or_create_collection("knowledge_base")
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     
-    # Используем API для эмбеддингов вместо локальной модели
     embed_model = HuggingFaceInferenceAPIEmbedding(
         api_key=HF_API_KEY,
         model_name="BAAI/bge-small-en-v1.5"
@@ -110,25 +112,31 @@ def search_on_site(query: str, index):
     return response.response, sources
 
 async def load_index_background():
-    """Фоновая загрузка индекса"""
+    """Фоновая загрузка индекса в отдельном потоке"""
     global search_index
+    
+    loop = asyncio.get_event_loop()
+    
     try:
         print("📚 Загрузка документов...")
-        docs = load_pages()
+        docs = await loop.run_in_executor(None, load_pages)
+        
         print("🔨 Создание индекса...")
-        search_index = create_search_engine(docs)
+        search_index = await loop.run_in_executor(None, create_search_engine, docs)
+        
         print("✅ Индекс успешно загружен!")
     except Exception as e:
         print(f"❌ Ошибка загрузки индекса: {e}")
+        import traceback
+        traceback.print_exc()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: запускаем загрузку индекса в фоне, НЕ блокируя сервер
     global index_loading_task
     print("✅ Сервер запускается, начинаю фоновую загрузку индекса...")
     index_loading_task = asyncio.create_task(load_index_background())
     
-    yield  # Сервер уже работает и слушает порт!
+    yield 
     
     # Shutdown
     print("Сервер останавливается...")
@@ -137,6 +145,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# CORS настройки
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
