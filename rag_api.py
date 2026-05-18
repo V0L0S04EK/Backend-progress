@@ -182,6 +182,16 @@ async def ask_question(request: QueryRequest):
         return QueryResponse(answer=answer, sources=sources)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка: {str(e)}")
+    
+@app.get("/debug-env")
+async def debug_env():
+    import os
+    api_key = os.getenv('API_KEY')
+    return {
+        "api_key_exists": api_key is not None,
+        "api_key_prefix": api_key[:20] if api_key else None,
+        "all_env_vars": list(os.environ.keys())
+    }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
