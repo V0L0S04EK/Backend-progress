@@ -1,4 +1,5 @@
 import os
+import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,9 +15,9 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from dotenv import load_dotenv
 import nest_asyncio
+
 nest_asyncio.apply()
 load_dotenv()
 
@@ -25,6 +26,7 @@ if not HF_API_KEY:
     raise ValueError("API_KEY не найден в .env файле!")
 
 search_index = None
+index_loading_task = None
 
 class QueryRequest(BaseModel):
     question: str
@@ -33,24 +35,6 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     sources: Optional[List[str]] = []
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("Сервер запускается... Индекс будет загружен при первом запросе")
-    yield
-    print("Сервер останавливается...")
-
-app = FastAPI(lifespan=lifespan)
-origins = ["https://xn--c1aezdfcia.fun",
-            "https://xn--c1aezdfcia.fun/data/ai-construction-part1.html",
-            "https://xn--c1aezdfcia.fun/data/ai-construction-part2.html"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 def load_pages():
     urls_to_scrape = [
@@ -68,10 +52,11 @@ def create_search_engine(documents):
     chroma_collection = db.get_or_create_collection("knowledge_base")
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     
-    embed_model = HuggingFaceEmbedding(
-    model_name="BAAI/bge-small-en-v1.5",
-    device="cpu" 
-)
+    # Используем API для эмбеддингов вместо локальной модели
+    embed_model = HuggingFaceInferenceAPIEmbedding(
+        api_key=HF_API_KEY,
+        model_name="BAAI/bge-small-en-v1.5"
+    )
     
     pipeline = IngestionPipeline(
         transformations=[
@@ -124,39 +109,71 @@ def search_on_site(query: str, index):
     
     return response.response, sources
 
+async def load_index_background():
+    """Фоновая загрузка индекса"""
+    global search_index
+    try:
+        print("📚 Загрузка документов...")
+        docs = load_pages()
+        print("🔨 Создание индекса...")
+        search_index = create_search_engine(docs)
+        print("✅ Индекс успешно загружен!")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки индекса: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: запускаем загрузку индекса в фоне, НЕ блокируя сервер
+    global index_loading_task
+    print("✅ Сервер запускается, начинаю фоновую загрузку индекса...")
+    index_loading_task = asyncio.create_task(load_index_background())
+    
+    yield  # Сервер уже работает и слушает порт!
+    
+    # Shutdown
+    print("Сервер останавливается...")
+    if index_loading_task:
+        index_loading_task.cancel()
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/")
 async def root():
     return {"message": "RAG API", "status": "running"}
 
-def get_or_create_index():
-    global search_index
-    if search_index is None:
-        print("Индекс не найден, загружаем...")
-        docs = load_pages()
-        search_index = create_search_engine(docs)
-        print("Индекс успешно загружен!")
-    return search_index
-
 @app.get("/health")
 async def health():
-    try:
-        index = get_or_create_index()
-        return {"status": "healthy", "index_loaded": index is not None}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
+    """Health check endpoint для Render"""
+    if search_index is None:
+        return {"status": "loading", "message": "Индекс загружается, попробуйте через минуту"}
+    return {"status": "healthy", "index_loaded": True}
+
+@app.get("/ready")
+async def ready():
+    """Ready probe для Render"""
+    if search_index is not None:
+        return {"status": "ready"}
+    raise HTTPException(status_code=503, detail="Индекс еще не загружен")
 
 @app.post("/ask", response_model=QueryResponse)
 async def ask_question(request: QueryRequest):
+    if search_index is None:
+        raise HTTPException(status_code=503, detail="Сервер загружается, попробуйте через минуту")
+    
     try:
-        index = get_or_create_index()
-        if index is None:
-            raise HTTPException(status_code=503, detail="Индекс не может загрузиться")
-        
-        answer, sources = search_on_site(request.question, index)
+        answer, sources = search_on_site(request.question, search_index)
         return QueryResponse(answer=answer, sources=sources)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка: {str(e)}")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000)) 
+    port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
