@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 from contextlib import asynccontextmanager
-import concurrent.futures
 
 from llama_index.core import VectorStoreIndex
 from llama_index.readers.web import SimpleWebPageReader
@@ -36,16 +35,29 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     sources: Optional[List[str]] = []
+    source_urls: Optional[List[str]] = []
 
 def load_pages():
     """Синхронная загрузка страниц"""
     urls_to_scrape = [
         "https://xn--c1aezdfcia.fun/data/ai-construction-part1.html",
-        "https://xn--c1aezdfcia.fun/data/ai-construction-part2.html"
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part2.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part3.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part4.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part5.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part6.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part7.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part8.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part9.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part10.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part11.html",
+        "https://xn--c1aezdfcia.fun/data/ai-construction-part12.html"
     ]
     
     reader = SimpleWebPageReader(html_to_text=True)
     documents = reader.load_data(urls_to_scrape)
+    for doc, url in zip(documents, urls_to_scrape):
+        doc.metadata = {"url": url}
     print(f"Загружено {len(documents)} документов")
     return documents
 
@@ -97,7 +109,6 @@ def search_on_site(query: str, index):
         "Отвечай на русском языке, используя только информацию из контекста ниже.\n"
         "Отвечай только фрагментами текста из приведенного контекста.\n"
         "Если информация отсутствует, скажи честно, что не нашёл.\n"
-        "каждый раз скидывай ссылку откуда ты эту информацию взял, если это возможно.\n"
         "Контекст: {context_str}\n"
         "Вопрос: {query_str}\n"
         "Ответ:"
@@ -107,10 +118,19 @@ def search_on_site(query: str, index):
     response = query_engine.query(query)
     
     sources = []
+    sources_urls = []
+    seen_urls = set()
     if hasattr(response, 'source_nodes'):
-        sources = [node.node.text[:200] + "..." for node in response.source_nodes]
+        for node_with_score in response.source_nodes:
+            text_preview = node_with_score.node.text[:200] + "..."
+            sources.append(text_preview)
+
+            url = node_with_score.node.metadata.get('url', 'URL не найден')
+            if url not in seen_urls:
+                seen_urls.add(url)
+                sources_urls.append(url)
     
-    return response.response, sources
+    return response.response, sources, sources_urls
 
 async def load_index_background():
     """Фоновая загрузка индекса в отдельном потоке"""
@@ -119,34 +139,32 @@ async def load_index_background():
     loop = asyncio.get_event_loop()
     
     try:
-        print("📚 Загрузка документов...")
+        print("Загрузка документов...")
         docs = await loop.run_in_executor(None, load_pages)
         
-        print("🔨 Создание индекса...")
+        print("Создание индекса...")
         search_index = await loop.run_in_executor(None, create_search_engine, docs)
         
-        print("✅ Индекс успешно загружен!")
+        print("Индекс успешно загружен!")
     except Exception as e:
-        print(f"❌ Ошибка загрузки индекса: {e}")
+        print(f"Ошибка загрузки индекса: {e}")
         import traceback
         traceback.print_exc()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global index_loading_task
-    print("✅ Сервер запускается, начинаю фоновую загрузку индекса...")
+    print("Сервер запускается, начинаю фоновую загрузку индекса...")
     index_loading_task = asyncio.create_task(load_index_background())
     
     yield 
     
-    # Shutdown
     print("Сервер останавливается...")
     if index_loading_task:
         index_loading_task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS настройки
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -166,33 +184,16 @@ async def health():
         return {"status": "loading", "message": "Индекс загружается, попробуйте через минуту"}
     return {"status": "healthy", "index_loaded": True}
 
-@app.get("/ready")
-async def ready():
-    """Ready probe для Render"""
-    if search_index is not None:
-        return {"status": "ready"}
-    raise HTTPException(status_code=503, detail="Индекс еще не загружен")
-
 @app.post("/ask", response_model=QueryResponse)
 async def ask_question(request: QueryRequest):
     if search_index is None:
         raise HTTPException(status_code=503, detail="Сервер загружается, попробуйте через минуту")
     
     try:
-        answer, sources = search_on_site(request.question, search_index)
-        return QueryResponse(answer=answer, sources=sources)
+        answer, sources, sources_urls = search_on_site(request.question, search_index)
+        return QueryResponse(answer=answer, sources=sources,source_urls=sources_urls)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка: {str(e)}")
-    
-@app.get("/debug-env")
-async def debug_env():
-    import os
-    api_key = os.getenv('API_KEY')
-    return {
-        "api_key_exists": api_key is not None,
-        "api_key_prefix": api_key[:20] if api_key else None,
-        "all_env_vars": list(os.environ.keys())
-    }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
